@@ -34,6 +34,47 @@ using System.Collections.Generic;
 [Serializable]
 public class SceneReference : ISerializationCallbackReceiver
 {
+
+        private static bool isDoingDomainReload;
+#if UNITY_EDITOR
+
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void SubscribeToDomainReloadEvents()
+        {
+            var AssemblyReloadEvents_Type = TwoWaySerializationBinder.Default.BindToType("UnityEditor.AssemblyReloadEvents");
+
+            if (AssemblyReloadEvents_Type == null) return;
+
+            var AssemblyReloadEvents_beforeAssemblyReload_Event = AssemblyReloadEvents_Type.GetEvent("beforeAssemblyReload");
+            var AssemblyReloadEvents_afterAssemblyReload_Event = AssemblyReloadEvents_Type.GetEvent("afterAssemblyReload");
+            var AssemblyReloadEvents_AssemblyReloadCallback_Type = AssemblyReloadEvents_Type.GetNestedType("AssemblyReloadCallback");
+
+            if (AssemblyReloadEvents_beforeAssemblyReload_Event == null || AssemblyReloadEvents_afterAssemblyReload_Event == null || AssemblyReloadEvents_AssemblyReloadCallback_Type == null)
+            {
+                return;
+            }
+
+            var UnitySerializationUtility_OnBeforeAssemblyReload_Method = typeof(UnitySerializationUtility).GetMethod("OnBeforeAssemblyReload", Flags.StaticAnyVisibility);
+            var UnitySerializationUtility_OnAfterAssemblyReload_Method = typeof(UnitySerializationUtility).GetMethod("OnAfterAssemblyReload", Flags.StaticAnyVisibility);
+
+            var onBeforeDelegate = Delegate.CreateDelegate(AssemblyReloadEvents_AssemblyReloadCallback_Type, UnitySerializationUtility_OnBeforeAssemblyReload_Method);
+            var onAfterDelegate = Delegate.CreateDelegate(AssemblyReloadEvents_AssemblyReloadCallback_Type, UnitySerializationUtility_OnAfterAssemblyReload_Method);
+
+            AssemblyReloadEvents_beforeAssemblyReload_Event.AddEventHandler(null, onBeforeDelegate);
+            AssemblyReloadEvents_afterAssemblyReload_Event.AddEventHandler(null, onAfterDelegate);
+        }
+
+        private static void OnBeforeAssemblyReload()
+        {
+            isDoingDomainReload = true;
+        }
+
+        private static void OnAfterAssemblyReload()
+        {
+            isDoingDomainReload = false;
+        }
+#endif
+
 #if UNITY_EDITOR
     // What we use in editor to select the scene
     [SerializeField] private Object sceneAsset;
@@ -84,6 +125,11 @@ public class SceneReference : ISerializationCallbackReceiver
     public void OnBeforeSerialize()
     {
 #if UNITY_EDITOR
+        if (isDoingDomainReload)
+        {
+            return;
+        }
+
         HandleBeforeSerialize();
 #endif
     }
@@ -92,6 +138,11 @@ public class SceneReference : ISerializationCallbackReceiver
     public void OnAfterDeserialize()
     {
 #if UNITY_EDITOR
+        if (isDoingDomainReload)
+        {
+            return;
+        }
+
         // We sadly cannot touch assetdatabase during serialization, so defer by a bit.
         EditorApplication.update += HandleAfterDeserialize;
 #endif
